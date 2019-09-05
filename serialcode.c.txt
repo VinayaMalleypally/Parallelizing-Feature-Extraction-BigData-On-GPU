@@ -1,0 +1,255 @@
+#include <windows.h>
+#include <tchar.h> 
+#include <stdio.h>
+#include<strsafe.h>
+#include<string.h>
+#pragma comment(lib, "User32.lib")
+
+
+#define BUFSIZE 10000
+#define LONG_DIR_NAME TEXT("c:\\longdirectoryname")
+
+
+void DisplayErrorBox(LPTSTR lpszFunction);
+
+int _tmain(int argc, TCHAR *argv[])
+{
+   WIN32_FIND_DATA ffd;
+   LARGE_INTEGER filesize;
+   TCHAR szDir[MAX_PATH];
+   size_t length_of_arg;
+   HANDLE hFind = INVALID_HANDLE_VALUE;
+   DWORD dwError=0;
+   
+   int* total;
+   
+   
+   char* featureFile;
+   
+   char** words;
+   
+   int i=0;
+   int j=0;
+   int noOfFeatures=0;
+   
+   char word[400];
+   
+   DWORD  retval=0;
+    BOOL   success; 
+    TCHAR  buffer[BUFSIZE]=TEXT(""); 
+    TCHAR  buf[BUFSIZE]=TEXT(""); 
+    TCHAR** lppPart={NULL};
+
+   	//char* file;
+   	char* feature;
+  	int count=0;
+  	
+  	LARGE_INTEGER frequency;
+    LARGE_INTEGER start;
+    LARGE_INTEGER end;
+    double interval;
+
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&start);
+   
+   
+   // If the directory is not specified as a command-line argument,
+   // print usage.
+  // printf("%d",argc);
+   //printf("Second argument : %s",argv[2]);
+   if(argc != 3)
+   {
+      _tprintf(TEXT("\nUsage: %s <directory name>\n"), argv[0]);
+      return (-1);
+   }
+
+   // Check that the input path plus 3 is not longer than MAX_PATH.
+   // Three characters are for the "\*" plus NULL appended below.
+
+   StringCchLength(argv[1], MAX_PATH, &length_of_arg);
+
+   if (length_of_arg > (MAX_PATH - 3))
+   {
+      _tprintf(TEXT("\nDirectory path is too long.\n"));
+        return (-1);
+   }
+
+   _tprintf(TEXT("\nTarget directory is %s\n\n"), argv[1]);
+
+   // Prepare string for use with FindFile functions.  First, copy the
+   // string to a buffer, then append '\*' to the directory name.
+
+   StringCchCopy(szDir, MAX_PATH, argv[1]);
+   StringCchCat(szDir, MAX_PATH, TEXT("\\*"));
+
+   // Find the first file in the directory.
+
+   hFind = FindFirstFile(szDir, &ffd);
+
+   if (INVALID_HANDLE_VALUE == hFind) 
+   {
+      DisplayErrorBox(TEXT("FindFirstFile"));
+      return dwError;
+   } 
+   
+   
+   // printf("Enter feature to be displayed:\n");
+     // 	  scanf("%s",&feature);	
+    words=(char**)malloc(100*sizeof(char*));
+    featureFile=(char*)malloc(20*sizeof(char));
+    total=(int*)calloc(100,sizeof(int));
+    
+    
+	
+	//printf("Enter feature file path :\n");
+	
+	//scanf("%s",featureFile);
+	
+	featureFile=argv[2];
+	
+	FILE* feat=fopen(featureFile,"r");
+	
+	while(!feof(feat)){
+		words[i]=(char*)malloc(30*sizeof(char));
+		fscanf(feat,"%s",words[i]);
+		//printf("Hii");
+		noOfFeatures++;
+		i++;
+	}
+   
+   // List all the files in the directory with some info about them.
+
+   do
+   {
+      if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+      {
+        // _tprintf(TEXT("  %s   <DIR>\n"), ffd.cFileName);
+      }
+      else
+      {
+      
+	   	
+	   		if( argc != 3 )
+  			 {
+      			_tprintf(TEXT("Usage: %s [file]\n"), argv[0]);
+      				return (-1);
+   			}
+   			
+   			
+   			retval = GetFullPathName(argv[1],
+                 BUFSIZE,
+                 buffer,
+                 lppPart);
+    			
+    		
+    		StringCchCat(buffer, MAX_PATH, TEXT("\\"));
+
+			StringCchCat(buffer, MAX_PATH, TEXT(ffd.cFileName));
+			
+	  	printf("%s\n",buffer);
+	  	
+	  	  for(i=0;i<noOfFeatures;i++){
+		  
+      	  FILE* fp=fopen(buffer,"r");
+      	  if(fp==NULL)
+      	  printf("No file\n");
+      	 count=0;
+      	
+		   feature=words[i];
+      	  while(!feof(fp)){
+      	  
+      	  fscanf(fp,"%s",word);
+      	 //	count=0;
+      	 	
+      	// printf("\nword: %s feature: %s",word,feature); 
+      	 
+      	 	if(lstrcmpi(word,feature)==0){
+			   count++;
+			  //printf("\nCount: %d \n",count); 
+			  
+		    
+		    
+      			}
+      
+    
+      	  
+      	}
+      
+      	 total[i]=total[i]+count;
+		  // printf("\n total %d",total[i]); 
+      	  fclose(fp);    	
+      	
+      
+  }
+      	 
+         filesize.LowPart = ffd.nFileSizeLow;
+         filesize.HighPart = ffd.nFileSizeHigh;
+         
+         
+        // _tprintf(TEXT("  %s   %ld bytes\n"), ffd.cFileName, filesize.QuadPart);
+      }
+   }while (FindNextFile(hFind, &ffd) != 0);
+ 
+ 
+
+		for(j=0;j<i;j++)
+			printf("\nFrequency[%d]: %d\n",j,total[j]);
+			
+		//printf("Hello");
+		
+ 		
+		// printf("\nTotal count: %d",total);	
+ 
+   dwError = GetLastError();
+   if (dwError != ERROR_NO_MORE_FILES) 
+   {
+      DisplayErrorBox(TEXT("FindFirstFile"));
+   }
+
+	
+   FindClose(hFind);
+  // getchar();
+   
+    QueryPerformanceCounter(&end);
+    interval = (double) (end.QuadPart - start.QuadPart) / frequency.QuadPart;
+
+    printf("\n Time Taken: %lf",interval);
+
+   return dwError;
+}
+
+
+void DisplayErrorBox(LPTSTR lpszFunction) 
+{ 
+    // Retrieve the system error message for the last-error code
+
+    LPVOID lpMsgBuf;
+    LPVOID lpDisplayBuf;
+    DWORD dw = GetLastError(); 
+
+    FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+        FORMAT_MESSAGE_FROM_SYSTEM |
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        dw,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR) &lpMsgBuf,
+        0, NULL );
+
+    // Display the error message and clean up
+
+    lpDisplayBuf = (LPVOID)LocalAlloc(LMEM_ZEROINIT, 
+        (lstrlen((LPCTSTR)lpMsgBuf)+lstrlen((LPCTSTR)lpszFunction)+40)*sizeof(TCHAR)); 
+    StringCchPrintf((LPTSTR)lpDisplayBuf, 
+        LocalSize(lpDisplayBuf) / sizeof(TCHAR),
+        TEXT("%s failed with error %d: %s"), 
+         lpszFunction, dw, lpMsgBuf); 
+    MessageBox(NULL, (LPCTSTR)lpDisplayBuf, TEXT("Error"), MB_OK); 
+
+    LocalFree(lpMsgBuf);
+    LocalFree(lpDisplayBuf);
+}
+
+
+
