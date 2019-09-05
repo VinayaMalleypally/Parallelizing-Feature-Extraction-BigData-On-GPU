@@ -1,0 +1,231 @@
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <time.h>
+#include <windows.h>
+
+#define WORD_SIZE 16
+
+FILE* spInput;
+char* contentArray;
+char (*featuresString)[WORD_SIZE];
+
+void readDirectoryContent(const char* fileName);
+void fileWordCharacterCount(const char* fileName, int* noOfWords, int* noOfCharacters);
+void generate1DWordsArray(char* wordsArray, int noOfWords, int noOfCharacters);	
+
+	
+
+
+__global__ void matchFeature(char* d_words, char* feature, int noOfFeatures, bool* result){				
+
+		int index = threadIdx.x;
+		int featureIndex;
+		int featureCount;
+		
+		for(featureCount = 0; featureCount < noOfFeatures; ++featureCount){
+			for(featureIndex = 0; featureIndex < WORD_SIZE; ++featureIndex)
+				if(d_words[index * WORD_SIZE + featureIndex] != feature[featureCount*WORD_SIZE + featureIndex])
+					break;
+
+			if(featureIndex == WORD_SIZE){
+				result[index * noOfFeatures + featureCount] = true;
+				break;
+			}
+				
+				
+		}
+		
+}
+
+
+
+int main(int argc, char* argv[]){
+	//clock_t start_t, end_t, total_t;
+	char* wordsArray;
+	int noOfWords;
+	int noOfCharacters;
+	char* featureArray;
+	int noOfFeatures;
+	bool* result;
+	int* featureFrequency;
+    //time_t start_t,end_t,total_t;
+	
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER start;
+    LARGE_INTEGER end;
+    double interval;
+
+	
+	DIR* directoryPtr;
+	struct dirent* entryPtr;
+	
+	//start_t = clock();	
+	 QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&start);
+
+										
+	fileWordCharacterCount(argv[2], &noOfFeatures, &noOfCharacters);
+	featureArray = (char*)calloc(noOfFeatures * WORD_SIZE+1, sizeof(char));
+	generate1DWordsArray(featureArray, noOfFeatures, noOfCharacters);
+	featureFrequency = (int*)calloc(noOfFeatures, sizeof(int));
+	
+	
+	if((directoryPtr = opendir(argv[1])) == NULL)
+		printf("\nError: Couldn't Open File");
+	
+			
+	while((entryPtr = readdir(directoryPtr))){
+	
+		if(entryPtr -> d_type == DT_REG){
+			
+			char fileName[255]={};
+			strcat(fileName, argv[1]);
+			strcat(fileName, "\\");
+			strcat(fileName, entryPtr->d_name);
+			printf("\nFile name: %s",fileName);
+
+			
+			fileWordCharacterCount(fileName, &noOfWords, &noOfCharacters);
+			wordsArray = (char*)calloc(noOfWords * WORD_SIZE+1, sizeof(char));
+			generate1DWordsArray(wordsArray, noOfWords, noOfCharacters);
+			
+			result = (bool*)calloc(noOfWords * noOfFeatures, sizeof(bool));
+			char* d_words;
+			char* d_feature;
+			bool* d_result;
+			cudaMalloc(&d_words, noOfWords*WORD_SIZE*sizeof(char));
+			cudaMalloc(&d_feature, noOfFeatures*WORD_SIZE*sizeof(char));
+			cudaMalloc(&d_result, noOfWords*noOfFeatures*sizeof(bool));
+			
+		
+		
+			cudaMemcpy(d_words, wordsArray, noOfWords*WORD_SIZE*sizeof(char), cudaMemcpyHostToDevice);
+			cudaMemcpy(d_feature, featureArray, noOfFeatures*WORD_SIZE*sizeof(char), cudaMemcpyHostToDevice);
+			cudaMemcpy(d_result, result, noOfWords*noOfFeatures*sizeof(bool), cudaMemcpyHostToDevice);
+			
+			
+			matchFeature<<<1,512>>>(d_words, d_feature, noOfFeatures, d_result);
+			
+			
+			
+			cudaMemcpy(result, d_result, noOfWords*noOfFeatures*sizeof(bool), cudaMemcpyDeviceToHost);
+
+			int index;
+			for(index = 0; index < noOfWords * noOfFeatures; ++index)
+				if(result[index] == true)
+					++featureFrequency[index%noOfFeatures];
+			
+		}
+		
+	}
+	
+	printf("\nFeature Array : %s", featureArray);
+	int index;
+	for(index = 0; index < noOfFeatures; ++index)
+		printf("\nFrequency[%d] = %d", index, featureFrequency[index]);
+
+	
+	
+	QueryPerformanceCounter(&end);
+	interval = (double) (end.QuadPart - start.QuadPart) / frequency.QuadPart;
+
+	printf("\nTime taken : %f sec\n", interval);
+	
+	
+	printf("\n\n");
+	return 0;
+}
+
+
+
+
+
+
+
+void fileWordCharacterCount(const char* fileName, int* noOfWordsPtr, int* noOfCharactersPtr){
+	
+	int fileLength;
+	char wordStatus = 'O';
+	int index;
+	int character;
+	int noOfWords = 0;
+
+	if((spInput = fopen(fileName, "r")) == NULL)
+		printf("\nError in Opening File : %s", fileName);
+	
+	fseek(spInput, 0L, SEEK_END);
+	*noOfCharactersPtr = fileLength = ftell(spInput);
+	contentArray = (char*)calloc(*noOfCharactersPtr, sizeof(char));
+	
+	rewind(spInput);
+	
+	for(index = 0; index < fileLength; ++index){
+
+		contentArray[index] = character = fgetc(spInput);
+		
+		if(character == ' ' || character == '\n' || character == '\t'){
+			if(wordStatus == 'I'){
+				++noOfWords;
+			wordStatus = 'O';
+			}	
+			continue;
+		}
+					
+		else if(wordStatus == 'O'){
+			wordStatus = 'I';
+		}
+	}
+	
+	if(fclose(spInput) == EOF)
+		printf("\nError in Closing File");
+	
+	*noOfWordsPtr = noOfWords;
+}
+
+
+void generate1DWordsArray(char* wordsArray, int noOfWords, int noOfCharacters){
+	
+	int index;
+	char ch;
+	char wordStatus = 'O';
+	
+	char* startPtr;
+	char* endPtr;
+	int wordCount = 0;
+	for(index = 0; index < noOfCharacters; ++index){
+		
+		ch = contentArray[index];
+	
+		if(ch == ' ' || ch == '\t' || ch == '\n'){
+			if(wordStatus == 'I'){
+			
+				
+				int wordLength = endPtr - startPtr + 1;
+				int wordIndex;
+			
+				for(wordIndex = 0; wordIndex < WORD_SIZE; ++wordIndex)
+					if(wordIndex < wordLength)
+						wordsArray[wordCount*WORD_SIZE+wordIndex] = *(startPtr + wordIndex);	
+					else
+						wordsArray[wordCount*WORD_SIZE+wordIndex] = ' ';
+								
+				wordStatus = 'O';
+				++wordCount;
+			}
+			continue;
+		}
+		else if(wordStatus == 'O'){
+			startPtr = endPtr = &contentArray[index];
+			wordStatus = 'I';
+		}
+		else if(wordStatus == 'I')
+			++endPtr;
+		
+			
+	}
+
+	
+}
